@@ -1,0 +1,9 @@
+fastapi
+uvicorn
+requests
+playwright
+pandas
+PyPDF2
+python-dotenv
+google-generativeai
+openai
