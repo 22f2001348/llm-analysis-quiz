@@ -25,6 +25,7 @@ LLM_PROVIDER = os.getenv("LLM_PROVIDER", "GEMINI")
 GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY")
 MAX_TIME_PER_TASK = 170
+MAX_RETRIES = 3
 
 if LLM_PROVIDER == "GEMINI" and GEMINI_API_KEY:
     genai.configure(api_key=GEMINI_API_KEY)
@@ -38,7 +39,7 @@ class QuizTask(BaseModel):
 # --- LLM Call ---
 def get_llm_response(prompt: str):
     if LLM_PROVIDER == "GEMINI":
-        model = genai.GenerativeModel('gemini-pro')
+        model = genai.GenerativeModel('gemini-1.5-pro-latest')
         response = model.generate_content(prompt)
         return response.text
     elif LLM_PROVIDER == "OPENAI":
@@ -97,7 +98,7 @@ def solve_quiz_and_get_submit_url(page, base_url):
     file_data = get_file_content_from_page(page, base_url)
 
     prompt = f"""
-    You are an expert data analyst. Solve the quiz based on the provided information.
+    You are an expert data analyst. Your task is to solve the quiz based on the provided information.
 
     Page Text:
     ---
@@ -109,19 +110,38 @@ def solve_quiz_and_get_submit_url(page, base_url):
     {file_data if file_data else "No files found."}
     ---
 
-    Return a single JSON object with "submit_url" and "answer".
+    Carefully analyze the page text and any file content to determine the answer. The page text will contain the submission URL.
+
+    Your response must be a single JSON object with two keys: "submit_url" and "answer".
+    - "submit_url": The URL where the answer should be submitted.
+    - "answer": The solution to the quiz. If you cannot determine the answer, set this to null.
+
+    Example response:
+    ```json
+    {{
+      "submit_url": "https://example.com/submit",
+      "answer": 12345
+    }}
+    ```
     """
 
     llm_response_text = get_llm_response(prompt)
 
     try:
-        json_search = re.search(r'\{.*\}', llm_response_text, re.DOTALL)
-        if json_search:
-            json_str = json_search.group(0)
-            response_json = json.loads(json_str)
-            return response_json.get("submit_url"), response_json.get("answer")
+        # Improved JSON extraction from markdown code blocks
+        json_match = re.search(r"```json\s*(\{.*?\})\s*```", llm_response_text, re.DOTALL)
+        if json_match:
+            json_str = json_match.group(1)
         else:
-            raise ValueError("No JSON object found in LLM response.")
+            # Fallback to the original regex if no markdown block is found
+            json_search = re.search(r'\{.*\}', llm_response_text, re.DOTALL)
+            if json_search:
+                json_str = json_search.group(0)
+            else:
+                raise ValueError("No JSON object found in LLM response.")
+
+        response_json = json.loads(json_str)
+        return response_json.get("submit_url"), response_json.get("answer")
 
     except (ValueError, json.JSONDecodeError) as e:
         print(f"Could not parse JSON from LLM response: {llm_response_text}, error: {e}")
@@ -137,27 +157,48 @@ def solve_quiz_in_background(email: str, secret: str, initial_url: str):
         page = browser.new_page()
 
         while current_url and (time.time() - start_time) < MAX_TIME_PER_TASK:
-            try:
-                print(f"Processing quiz at: {current_url}")
-                page.goto(current_url, timeout=60000)
-                submit_url, answer = solve_quiz_and_get_submit_url(page, current_url)
+            retries = 0
+            solved = False
+            while retries < MAX_RETRIES and not solved and (time.time() - start_time) < MAX_TIME_PER_TASK:
+                try:
+                    print(f"Attempt {retries + 1} for quiz at: {current_url}")
+                    page.goto(current_url, timeout=60000)
+                    submit_url, answer = solve_quiz_and_get_submit_url(page, current_url)
 
-                if not submit_url:
-                    raise ValueError("Could not determine submission URL.")
+                    if not submit_url:
+                        print("Could not determine submission URL. Stopping.")
+                        break
 
-                response_data = submit_answer(submit_url, email, secret, current_url, answer)
-                print(f"Submission response: {response_data}")
-                current_url = response_data.get("url")
+                    response_data = submit_answer(submit_url, email, secret, current_url, answer)
+                    print(f"Submission response: {response_data}")
 
-            except Exception as e:
-                print(f"Error in background task: {e}")
+                    if response_data.get("correct"):
+                        print("Answer was correct. Moving to the next quiz if available.")
+                        current_url = response_data.get("url")
+                        solved = True
+                    else:
+                        print(f"Answer was incorrect. Reason: {response_data.get('reason')}")
+                        retries += 1
+                        time.sleep(5) # Wait before retrying
+
+                except Exception as e:
+                    print(f"An unexpected error occurred: {e}")
+                    retries += 1
+                    time.sleep(5)
+
+            if not solved:
+                print("Could not solve the quiz after multiple retries. Stopping.")
+                break
+
+            if not current_url:
+                print("No new quiz URL provided. Ending quiz.")
                 break
 
         browser.close()
 
     if (time.time() - start_time) >= MAX_TIME_PER_TASK:
-        print("Task timed out.")
-    print("Background task finished.")
+        print("Task timed out after reaching the maximum allowed time.")
+    print("Background quiz solving process finished.")
 
 
 def submit_answer(submit_url: str, email: str, secret: str, original_url: str, answer: any):
