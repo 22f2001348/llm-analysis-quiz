@@ -6,4 +6,5 @@ pandas
 PyPDF2
 python-dotenv
 google-generativeai
-openai
+langgraph
+langchain-google-genai
