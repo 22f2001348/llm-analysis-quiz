@@ -10,9 +10,5 @@ services:
         value: 3.11
       - key: QUIZ_SECRET
         sync: false # Set this in the Render dashboard
-      - key: LLM_PROVIDER
-        sync: false # Set this to GEMINI or OPENAI
       - key: GEMINI_API_KEY
         sync: false # Set your Gemini API key
-      - key: OPENAI_API_KEY
-        sync: false # Set your OpenAI API key
