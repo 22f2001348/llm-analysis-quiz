@@ -1,74 +1,39 @@
-# LLM Analysis Quiz Agent
+# LLM Analysis Quiz Agent (Tool-Based)
 
-This project is an automated agent designed to solve a series of data analysis and visualization quizzes. The agent is built with FastAPI and uses Playwright for headless browsing and a configurable LLM (Gemini or OpenAI) for reasoning and problem-solving.
+This project is a highly robust, tool-based autonomous agent designed to solve a series of web-based data analysis quizzes. Built with FastAPI, LangGraph, and Google's Gemini LLM, this agent can browse websites, download files, and execute Python code to perform complex data analysis tasks.
 
-## Core Features
+## Architecture
 
-- **Automated Quiz Solving**: The agent can navigate to a quiz URL, analyze the content, and solve the given task.
-- **Headless Browser Integration**: Uses Playwright to handle JavaScript-rendered pages and interact with web elements.
-- **LLM-Agnostic Design**: Easily switch between LLM providers (Gemini and OpenAI) using environment variables.
-- **Robust Task Loop**: The agent can handle multi-step quizzes by automatically submitting answers and navigating to the next task URL.
-- **Secure Endpoint**: The API endpoint is secured with a secret key to prevent unauthorized access.
-- **Cloud-Native**: Designed to be deployed on cloud platforms like Render, with configuration provided in `render.yaml`.
+This project has been re-architected from a monolithic design to a modular, agent-based system that mirrors the successful approach of modern AI applications.
 
-## Tech Stack
+-   **`main.py`**: The FastAPI server that exposes a `/quiz` endpoint to receive tasks. It launches the agent as a background process with a 3-minute timeout to ensure resilience.
+-   **`agent.py`**: The core of the application. It uses LangGraph to create a stateful agent that can reason and decide which tool to use. The agent is guided by a detailed system prompt that ensures it follows a strict, logical workflow.
+-   **`tools.py`**: A collection of tools the agent can use:
+    -   `get_rendered_html`: Browses a URL and returns the full, JavaScript-rendered HTML.
+    -   `download_file`: Downloads any file (text or binary) and returns its content as a base64-encoded string.
+    -   `python_interpreter`: A sandboxed Python interpreter with `pandas`, `PyPDF2`, `requests`, and `base64` for data analysis and submission.
 
-- **Backend**: FastAPI
-- **Headless Browser**: Playwright
-- **LLM Integration**: Google Generative AI (for Gemini), OpenAI API (placeholder)
-- **HTTP Client**: requests
-- **Deployment**: Render
+## Key Features
 
-## Design Choices
+-   **Autonomous Quiz Solving**: The agent can navigate a series of quizzes, starting from an initial URL.
+-   **Tool-Based Reasoning**: The agent uses a set of tools to interact with the world, making it highly flexible and adaptable.
+-   **Robust Error Handling**: The `python_interpreter` tool captures and returns errors, allowing the agent to self-correct.
+-   **Secure and Configurable**: All secrets and API keys are managed through environment variables.
+-   **Resilient by Design**: The agent runs in a separate process with a timeout, preventing it from getting stuck.
+-   **Cloud-Ready**: The `render.yaml` file provides a complete configuration for deploying on the Render platform.
 
-- **Stateless Architecture**: The agent is stateless, meaning it doesn't store any information about past quizzes. This simplifies the design and makes it more reliable, which aligns with the linear, one-way nature of the quiz.
-- **LLM as the "Brain"**: Instead of writing complex parsing logic for every possible quiz format, the agent offloads the reasoning to a large language model. This makes the agent more flexible and adaptable to different types of questions.
-- **Environment Variables for Configuration**: All sensitive information (API keys, secrets) and configuration (LLM provider) is handled through environment variables, which is a security best practice.
-- **Render for Deployment**: Render was chosen for its ease of use, free tier, and seamless integration with GitHub, making deployment straightforward. The `render.yaml` file automates the setup process.
+## How to Run
 
-## How to Run Locally
-
-1.  **Clone the repository:**
-    ```bash
-    git clone <your-repo-url>
-    cd llm-analysis-quiz
+1.  **Clone the repository.**
+2.  **Create a `.env` file** with the following:
     ```
-
-2.  **Install dependencies:**
+    QUIZ_SECRET="your_secret"
+    GEMINI_API_KEY="your_gemini_key"
+    EMAIL="your_email"
+    ```
+3.  **Install dependencies and run the server:**
     ```bash
     pip install -r requirements.txt
     playwright install
+    uvicorn main:app --reload
     ```
-
-3.  **Create a `.env` file** with the following content:
-    ```
-    QUIZ_SECRET="your_secret_here"
-    LLM_PROVIDER="GEMINI" # or OPENAI
-    GEMINI_API_KEY="your_gemini_api_key"
-    # OPENAI_API_KEY="your_openai_api_key"
-    ```
-
-4.  **Run the application:**
-    ```bash
-    uvicorn fastapi_quiz_agent:app --reload
-    ```
-
-## API Endpoint
-
-The agent exposes a single endpoint: `POST /quiz`.
-
-**Request Body:**
-
-```json
-{
-  "email": "your.email@example.com",
-  "secret": "your_secret_here",
-  "url": "https://example.com/quiz-url"
-}
-```
-
-**Responses:**
-
-- `200 OK`: If the secret is valid and the quiz loop starts.
-- `403 Forbidden`: If the secret is invalid.
-- `500 Internal Server Error`: If an error occurs during the quiz-solving process.
