@@ -3,16 +3,14 @@ services:
     name: llm-quiz-agent
     env: python
     plan: free
-    buildCommand: "pip install -r requirements.txt && playwright install"
-    startCommand: "uvicorn fastapi_quiz_agent:app --host 0.0.0.0 --port $PORT"
+    buildCommand: "pip install poetry && poetry install && playwright install"
+    startCommand: "poetry run uvicorn main:app --host 0.0.0.0 --port $PORT"
     envVars:
       - key: PYTHON_VERSION
         value: 3.11
       - key: QUIZ_SECRET
-        sync: false # Set this in the Render dashboard
-      - key: LLM_PROVIDER
-        sync: false # Set this to GEMINI or OPENAI
+        sync: false
       - key: GEMINI_API_KEY
-        sync: false # Set your Gemini API key
-      - key: OPENAI_API_KEY
-        sync: false # Set your OpenAI API key
+        sync: false
+      - key: EMAIL
+        sync: false
