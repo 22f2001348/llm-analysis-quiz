@@ -63,7 +63,9 @@ def process_pdf(file_content: bytes) -> str:
     reader = PdfReader(pdf_file)
     text = ""
     for page in reader.pages:
-        text += page.extract_text() + "\n"
+        page_text = page.extract_text()
+        if page_text:
+            text += page_text + "\n"
     return text
 
 def process_csv(file_content: bytes) -> str:
@@ -147,7 +149,7 @@ def solve_quiz_and_get_submit_url(page, base_url):
         print(f"Could not parse JSON from LLM response: {llm_response_text}, error: {e}")
         return None, "Failed to parse LLM response."
 
-# --- Background Task for Quiz Solving ---
+# --- Background Task for Quiz Solving (Fixed multi-step logic) ---
 def solve_quiz_in_background(email: str, secret: str, initial_url: str):
     start_time = time.time()
     current_url = initial_url
@@ -158,8 +160,7 @@ def solve_quiz_in_background(email: str, secret: str, initial_url: str):
 
         while current_url and (time.time() - start_time) < MAX_TIME_PER_TASK:
             retries = 0
-            solved = False
-            while retries < MAX_RETRIES and not solved and (time.time() - start_time) < MAX_TIME_PER_TASK:
+            while retries < MAX_RETRIES and (time.time() - start_time) < MAX_TIME_PER_TASK:
                 try:
                     print(f"Attempt {retries + 1} for quiz at: {current_url}")
                     page.goto(current_url, timeout=60000)
@@ -167,39 +168,37 @@ def solve_quiz_in_background(email: str, secret: str, initial_url: str):
 
                     if not submit_url:
                         print("Could not determine submission URL. Stopping.")
+                        current_url = None
                         break
 
                     response_data = submit_answer(submit_url, email, secret, current_url, answer)
                     print(f"Submission response: {response_data}")
 
-                    if response_data.get("correct"):
-                        print("Answer was correct. Moving to the next quiz if available.")
-                        current_url = response_data.get("url")
-                        solved = True
+                    next_url = response_data.get("url")
+                    if next_url:
+                        print(f"Next quiz URL detected: {next_url}")
+                        current_url = next_url
+                        retries = 0  # reset retry count for next quiz
+                        break        # exit inner retry loop, outer "while current_url" will continue
+                    elif response_data.get("correct"):
+                        print("Quiz solved and no further quiz; finishing.")
+                        current_url = None
+                        break
                     else:
                         print(f"Answer was incorrect. Reason: {response_data.get('reason')}")
                         retries += 1
-                        time.sleep(5) # Wait before retrying
+                        time.sleep(5) # retry
 
                 except Exception as e:
                     print(f"An unexpected error occurred: {e}")
                     retries += 1
                     time.sleep(5)
 
-            if not solved:
-                print("Could not solve the quiz after multiple retries. Stopping.")
-                break
-
-            if not current_url:
-                print("No new quiz URL provided. Ending quiz.")
-                break
-
         browser.close()
 
     if (time.time() - start_time) >= MAX_TIME_PER_TASK:
         print("Task timed out after reaching the maximum allowed time.")
     print("Background quiz solving process finished.")
-
 
 def submit_answer(submit_url: str, email: str, secret: str, original_url: str, answer: any):
     payload = {"email": email, "secret": secret, "url": original_url, "answer": answer}
